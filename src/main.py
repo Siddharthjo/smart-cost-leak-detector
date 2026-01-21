@@ -20,6 +20,8 @@ from src.intelligence.severity.scorer import score_leaks
 from src.insights.generator import generate_insights
 
 file_path = "data/raw/aws/synthetic_aws_cur_full.csv"
+#file_path = "data/raw/azure/synthetic_azure_cost_export.csv"
+
 
 df = load_csv(file_path)
 

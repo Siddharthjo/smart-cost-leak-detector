@@ -1,21 +1,28 @@
 from src.normalization.schema_enforcer import enforce_schema
+import pandas as pd
 
 
 def normalize_azure(df):
     """
-    Normalize Azure billing data into unified schema
+    Normalize Azure Cost Management Export into unified schema
     """
 
     normalized = df.rename(columns={
         "UsageDate": "date",
-        "ServiceName": "service",
+        "MeterCategory": "service",
+        "CostInBillingCurrency": "cost",
+        "ConsumedQuantity": "usage",
         "ResourceId": "resource_id",
-        "UsageQuantity": "usage",
-        "Cost": "cost",
         "ResourceLocation": "region",
     })
 
-    normalized["provider"] = "AZURE"
+    # Parse date safely
+    if "date" in normalized.columns:
+        normalized["date"] = pd.to_datetime(
+            normalized["date"], errors="coerce"
+        ).dt.date
+
+    normalized["provider"] = "Azure"
 
     normalized = enforce_schema(normalized)
 
