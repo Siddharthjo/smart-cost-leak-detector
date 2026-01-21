@@ -12,6 +12,7 @@ from src.intelligence.feature_engineering.cost_features import usage_cost_ratio
 from src.intelligence.leak_detection.rule_based import detect_idle_resources
 from src.intelligence.leak_detection.rule_based import detect_zombie_resources
 from src.intelligence.leak_detection.rule_based import detect_runaway_costs
+from src.intelligence.leak_detection.rule_based import detect_always_on_high_cost
 
 
 file_path = "data/raw/azure/cost-analysis.csv"
@@ -69,3 +70,8 @@ if is_valid:
 
         print("Runaway cost leaks:")
         print(runaway_leaks)
+
+        always_on_leaks = detect_always_on_high_cost(daily_cost_df)
+
+        print("Always-on high cost leaks:")
+        print(always_on_leaks)

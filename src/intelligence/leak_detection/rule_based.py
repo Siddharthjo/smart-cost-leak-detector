@@ -75,3 +75,31 @@ def detect_runaway_costs(cost_trends):
             })
 
     return leaks
+
+def detect_always_on_high_cost(daily_cost_df, threshold=100):
+    """
+    Detects services that are always on and consistently expensive.
+
+    Rule:
+    - Average daily cost above threshold
+    """
+
+    leaks = []
+
+    if daily_cost_df.empty:
+        return leaks
+
+    grouped = daily_cost_df.groupby(["provider", "service"])
+
+    for (provider, service), group in grouped:
+        avg_cost = group["daily_cost"].mean()
+
+        if avg_cost >= threshold:
+            leaks.append({
+                "leak_type": "ALWAYS_ON_HIGH_COST",
+                "provider": provider,
+                "service": service,
+                "reason": f"Average daily cost {avg_cost:.2f} exceeds threshold {threshold}"
+            })
+
+    return leaks
