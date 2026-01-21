@@ -1,29 +1,29 @@
-def detect_csv_type(columns):
-    """
-    Detect whether CSV is INVOICE or COST_USAGE
-    """
-    column_names = [col.lower() for col in columns]
+def detect_csv_type(df):
+    columns = set(col.lower() for col in df.columns)
 
-    invoice_keywords = [
-        "invoice",
-        "due",
-        "balance",
-        "payer",
-        "billing period"
-    ]
+    # ---- AWS CUR / COST & USAGE detection (PRIORITY) ----
+    aws_cur_signals = {
+        "line_item_usage_start_date",
+        "line_item_usage_amount",
+        "line_item_unblended_cost",
+        "product_servicecode",
+        "line_item_resource_id",
+    }
 
-    usage_keywords = [
-        "usage",
-        "resource",
-        "service",
-        "meter",
-        "cost"
-    ]
+    cur_matches = aws_cur_signals.intersection(columns)
 
-    if any(any(key in col for key in invoice_keywords) for col in column_names):
-        return "INVOICE"
-
-    if any(any(key in col for key in usage_keywords) for col in column_names):
+    if len(cur_matches) >= 2:
         return "COST_USAGE"
+
+    # ---- Invoice detection (fallback) ----
+    invoice_signals = {
+        "invoice id",
+        "billing period",
+        "balance due",
+        "invoice amount",
+    }
+
+    if invoice_signals.intersection(columns):
+        return "INVOICE"
 
     return "UNKNOWN"

@@ -31,8 +31,10 @@ if is_valid:
     print("Detected CSV type:", csv_type)
 
     if csv_type == "COST_USAGE":
-        if "UsageStartDate" in df:
+        # AWS CUR
+        if "line_item_usage_start_date" in df.columns:
             normalized_df = normalize_aws(df)
+        # Azure Cost Analysis
         else:
             normalized_df = normalize_azure(df)
 
