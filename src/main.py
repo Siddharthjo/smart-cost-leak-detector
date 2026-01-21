@@ -11,6 +11,8 @@ from src.intelligence.feature_engineering.cost_features import resource_lifespan
 from src.intelligence.feature_engineering.cost_features import usage_cost_ratio
 from src.intelligence.leak_detection.rule_based import detect_idle_resources
 from src.intelligence.leak_detection.rule_based import detect_zombie_resources
+from src.intelligence.leak_detection.rule_based import detect_runaway_costs
+
 
 file_path = "data/raw/azure/cost-analysis.csv"
 
@@ -62,3 +64,8 @@ if is_valid:
 
         print("Zombie resource leaks:")
         print(zombie_leaks)
+
+        runaway_leaks = detect_runaway_costs(trend_results)
+
+        print("Runaway cost leaks:")
+        print(runaway_leaks)

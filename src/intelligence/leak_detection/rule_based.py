@@ -54,3 +54,24 @@ def detect_zombie_resources(resource_lifespans, min_days=30):
             })
 
     return leaks
+
+def detect_runaway_costs(cost_trends):
+    """
+    Detects runaway cost increases.
+
+    Rule:
+    - Cost trend is INCREASING
+    """
+
+    leaks = []
+
+    for item in cost_trends:
+        if item.get("trend") == "INCREASING":
+            leaks.append({
+                "leak_type": "RUNAWAY_COST",
+                "provider": item["provider"],
+                "service": item["service"],
+                "reason": "Cost increasing over time"
+            })
+
+    return leaks
