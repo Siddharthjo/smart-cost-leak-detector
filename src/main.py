@@ -9,6 +9,7 @@ from src.intelligence.feature_engineering.cost_features import daily_cost_per_se
 from src.intelligence.feature_engineering.cost_features import cost_trend_per_service
 from src.intelligence.feature_engineering.cost_features import resource_lifespan
 from src.intelligence.feature_engineering.cost_features import usage_cost_ratio
+from src.intelligence.leak_detection.rule_based import detect_idle_resources
 
 file_path = "data/raw/azure/cost-analysis.csv"
 
@@ -50,3 +51,8 @@ if is_valid:
 
         print("Usage to cost ratio:")
         print(ratio_results)
+
+        idle_leaks = detect_idle_resources(ratio_results)
+
+        print("Idle resource leaks:")
+        print(idle_leaks)
