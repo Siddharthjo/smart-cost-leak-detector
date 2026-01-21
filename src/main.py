@@ -9,11 +9,13 @@ from src.intelligence.feature_engineering.cost_features import daily_cost_per_se
 from src.intelligence.feature_engineering.cost_features import cost_trend_per_service
 from src.intelligence.feature_engineering.cost_features import resource_lifespan
 from src.intelligence.feature_engineering.cost_features import usage_cost_ratio
+
 from src.intelligence.leak_detection.rule_based import detect_idle_resources
 from src.intelligence.leak_detection.rule_based import detect_zombie_resources
 from src.intelligence.leak_detection.rule_based import detect_runaway_costs
 from src.intelligence.leak_detection.rule_based import detect_always_on_high_cost
 
+from src.intelligence.severity.scorer import score_leaks
 
 file_path = "data/raw/azure/cost-analysis.csv"
 
@@ -75,3 +77,15 @@ if is_valid:
 
         print("Always-on high cost leaks:")
         print(always_on_leaks)
+
+        all_leaks = (
+            idle_leaks +
+            zombie_leaks +
+            runaway_leaks +
+            always_on_leaks
+        )
+
+        scored_leaks = score_leaks(all_leaks)
+
+        print("Scored leaks:")
+        print(scored_leaks)
