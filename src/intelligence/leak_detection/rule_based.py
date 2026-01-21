@@ -27,3 +27,30 @@ def detect_idle_resources(usage_cost_ratios, threshold=0.1):
             })
 
     return leaks
+
+def detect_zombie_resources(resource_lifespans, min_days=30):
+    """
+    Detects zombie resources.
+
+    Rule:
+    - Resource active for many days
+    - Still incurring cost
+
+    min_days: number of days after which a resource is considered zombie
+    """
+
+    leaks = []
+
+    for item in resource_lifespans:
+        days_active = item.get("days_active", 0)
+
+        if days_active >= min_days:
+            leaks.append({
+                "leak_type": "ZOMBIE_RESOURCE",
+                "provider": item["provider"],
+                "service": item["service"],
+                "resource_id": item["resource_id"],
+                "reason": f"Resource active for {days_active} days"
+            })
+
+    return leaks
