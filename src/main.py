@@ -7,6 +7,7 @@ from src.normalization.azure_normalizer import normalize_azure
 
 from src.intelligence.feature_engineering.cost_features import daily_cost_per_service
 from src.intelligence.feature_engineering.cost_features import cost_trend_per_service
+from src.intelligence.feature_engineering.cost_features import resource_lifespan
 
 file_path = "data/raw/azure/cost-analysis.csv"
 
@@ -38,3 +39,8 @@ if is_valid:
 
         print("Cost trend per service:")
         print(trend_results)
+
+        lifespan_results = resource_lifespan(normalized_df)
+
+        print("Resource lifespan:")
+        print(lifespan_results)

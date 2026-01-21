@@ -46,3 +46,31 @@ def cost_trend_per_service(daily_cost_df):
         })
 
     return trends
+
+def resource_lifespan(df):
+    """
+    Computes lifespan (number of days) a resource has incurred cost.
+    Input: normalized DataFrame
+    Output: DataFrame with resource lifespan in days
+    """
+
+    if "resource_id" not in df.columns:
+        return []
+
+    grouped = df.dropna(subset=["resource_id"]).groupby(
+        ["provider", "service", "resource_id"]
+    )
+
+    lifespans = []
+
+    for (provider, service, resource_id), group in grouped:
+        days_active = group["date"].nunique()
+
+        lifespans.append({
+            "provider": provider,
+            "service": service,
+            "resource_id": resource_id,
+            "days_active": days_active
+        })
+
+    return lifespans
