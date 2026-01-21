@@ -74,3 +74,37 @@ def resource_lifespan(df):
         })
 
     return lifespans
+
+def usage_cost_ratio(df):
+    """
+    Computes usage-to-cost ratio per resource.
+    Input: normalized DataFrame
+    Output: list of usage-to-cost ratios
+    """
+
+    if "usage" not in df.columns or "resource_id" not in df.columns:
+        return []
+
+    grouped = df.dropna(subset=["resource_id", "usage"]).groupby(
+        ["provider", "service", "resource_id"]
+    )
+
+    ratios = []
+
+    for (provider, service, resource_id), group in grouped:
+        total_cost = group["cost"].sum()
+        total_usage = group["usage"].sum()
+
+        if total_cost == 0:
+            ratio = None
+        else:
+            ratio = total_usage / total_cost
+
+        ratios.append({
+            "provider": provider,
+            "service": service,
+            "resource_id": resource_id,
+            "usage_to_cost_ratio": ratio
+        })
+
+    return ratios

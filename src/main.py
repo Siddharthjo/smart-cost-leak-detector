@@ -8,6 +8,7 @@ from src.normalization.azure_normalizer import normalize_azure
 from src.intelligence.feature_engineering.cost_features import daily_cost_per_service
 from src.intelligence.feature_engineering.cost_features import cost_trend_per_service
 from src.intelligence.feature_engineering.cost_features import resource_lifespan
+from src.intelligence.feature_engineering.cost_features import usage_cost_ratio
 
 file_path = "data/raw/azure/cost-analysis.csv"
 
@@ -44,3 +45,8 @@ if is_valid:
 
         print("Resource lifespan:")
         print(lifespan_results)
+
+        ratio_results = usage_cost_ratio(normalized_df)
+
+        print("Usage to cost ratio:")
+        print(ratio_results)
