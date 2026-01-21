@@ -17,6 +17,8 @@ from src.intelligence.leak_detection.rule_based import detect_always_on_high_cos
 
 from src.intelligence.severity.scorer import score_leaks
 
+from src.insights.generator import generate_insights
+
 file_path = "data/raw/azure/cost-analysis.csv"
 
 df = load_csv(file_path)
@@ -89,3 +91,10 @@ if is_valid:
 
         print("Scored leaks:")
         print(scored_leaks)
+
+        insights = generate_insights(scored_leaks)
+
+        print("\n=== COST LEAK INSIGHTS ===")
+        for insight in insights:
+            print(insight)
+            print("-" * 50)
