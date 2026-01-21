@@ -22,5 +22,6 @@ if is_valid:
         else:
             normalized_df = normalize_azure(df)
 
-        print("Normalized columns:", list(normalized_df.columns))
+        print("Final normalized columns:", list(normalized_df.columns))
+        print("Row count after normalization:", len(normalized_df))
         print(normalized_df.head())
