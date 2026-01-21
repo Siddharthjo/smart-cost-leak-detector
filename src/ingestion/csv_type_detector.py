@@ -26,7 +26,20 @@ def detect_csv_type(df):
     if len(azure_signals.intersection(columns)) >= 2:
         return "COST_USAGE"
 
-    # --- Invoice detection (fallback) ---
+    # --- GCP Cloud Billing Export detection ---
+    gcp_signals = {
+        "usage_start_time",
+        "usage.amount",
+        "cost",
+        "service.description",
+        "billing_account_id",
+        "project.id",
+    }
+
+    if len(gcp_signals.intersection(columns)) >= 2:
+        return "COST_USAGE"
+
+    # --- Invoice / fallback ---
     invoice_signals = {
         "invoice id",
         "billing period",
