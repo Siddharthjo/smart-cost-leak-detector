@@ -19,7 +19,7 @@ from src.intelligence.severity.scorer import score_leaks
 
 from src.insights.generator import generate_insights
 
-file_path = "data/raw/azure/cost-analysis.csv"
+file_path = "data/raw/aws/synthetic_aws_cur_full.csv"
 
 df = load_csv(file_path)
 
@@ -27,11 +27,11 @@ is_valid, message = validate_csv(file_path, df)
 print(message)
 
 if is_valid:
-    csv_type = detect_csv_type(df.columns)
+    csv_type = detect_csv_type(df)
     print("Detected CSV type:", csv_type)
 
     if csv_type == "COST_USAGE":
-        if "UsageStartDate" in df.columns:
+        if "UsageStartDate" in df:
             normalized_df = normalize_aws(df)
         else:
             normalized_df = normalize_azure(df)
