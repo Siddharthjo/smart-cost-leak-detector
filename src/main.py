@@ -5,7 +5,10 @@ from src.ingestion.csv_type_detector import detect_csv_type
 from src.normalization.aws_normalizer import normalize_aws
 from src.normalization.azure_normalizer import normalize_azure
 
-file_path = "data/raw/aws/payments_due_2026-01-20T07_16_02.706Z.csv"
+from src.intelligence.feature_engineering.cost_features import daily_cost_per_service
+from src.intelligence.feature_engineering.cost_features import cost_trend_per_service
+
+file_path = "data/raw/azure/cost-analysis.csv"
 
 df = load_csv(file_path)
 
@@ -25,3 +28,13 @@ if is_valid:
         print("Final normalized columns:", list(normalized_df.columns))
         print("Row count after normalization:", len(normalized_df))
         print(normalized_df.head())
+
+        daily_cost_df = daily_cost_per_service(normalized_df)
+
+        print("Daily cost per service:")
+        print(daily_cost_df.head())
+
+        trend_results = cost_trend_per_service(daily_cost_df)
+
+        print("Cost trend per service:")
+        print(trend_results)
