@@ -1,3 +1,8 @@
+# ---------------- ZOMBIE RULE THRESHOLDS ----------------
+
+ZOMBIE_DAYS_THRESHOLD = 14
+LOW_USAGE_RATIO_THRESHOLD = 5
+
 # ---------------- SERVICE CATEGORIZATION ----------------
 
 COMPUTE_SERVICES = {
@@ -92,32 +97,53 @@ def detect_idle_resources(usage_cost_ratios, threshold=0.1):
 
     return leaks
 
-def detect_zombie_resources(resource_lifespans, min_days=30):
+def detect_zombie_resources(lifespan_data, usage_ratio_data):
     """
-    Detects zombie resources.
-
-    Rule:
-    - Resource active for many days
-    - Still incurring cost
-
-    min_days: number of days after which a resource is considered zombie
+    Detect zombie resources:
+    Long-running compute resources with low usage.
     """
 
-    leaks = []
+    zombies = []
 
-    for item in resource_lifespans:
-        days_active = item.get("days_active", 0)
+    # Build lookup for usage ratio by resource
+    usage_lookup = {
+        (item["provider"], item["service"], item["resource_id"]): item["usage_to_cost_ratio"]
+        for item in usage_ratio_data
+    }
 
-        if days_active >= min_days:
-            leaks.append({
-                "leak_type": "ZOMBIE_RESOURCE",
-                "provider": item["provider"],
-                "service": item["service"],
-                "resource_id": item["resource_id"],
-                "reason": f"Resource active for {days_active} days"
-            })
+    for item in lifespan_data:
+        provider = item["provider"]
+        service = item["service"]
+        resource_id = item["resource_id"]
+        days_active = item["days_active"]
 
-    return leaks
+        category = get_service_category(service)
+
+        # 1️⃣ Only compute resources
+        if category != "compute":
+            continue
+
+        # 2️⃣ Must be active long enough
+        if days_active < ZOMBIE_DAYS_THRESHOLD:
+            continue
+
+        usage_ratio = usage_lookup.get(
+            (provider, service, resource_id), None
+        )
+
+        # 3️⃣ Must have low usage
+        if usage_ratio is None or usage_ratio > LOW_USAGE_RATIO_THRESHOLD:
+            continue
+
+        zombies.append({
+            "leak_type": "ZOMBIE_RESOURCE",
+            "provider": provider,
+            "service": service,
+            "resource_id": resource_id,
+            "reason": f"Compute resource running {days_active} days with low usage",
+        })
+
+    return zombies
 
 def detect_runaway_costs(cost_trends):
     """
