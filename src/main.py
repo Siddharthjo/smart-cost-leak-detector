@@ -19,16 +19,23 @@ from src.intelligence.leak_detection.rule_based import (
     detect_always_on_high_cost,
 )
 
+from src.intelligence.leak_detection.structural import (
+    detect_orphaned_storage,
+    detect_idle_databases,
+    detect_snapshot_sprawl,
+    detect_untagged_resources,
+)
+
 from src.intelligence.severity.scorer import score_leaks
 from src.insights.generator import generate_insights
 
 
-# ---------------- INPUT ----------------
+# ================== INPUT ==================
 
 # Uncomment ONE at a time
-# file_path = "data/raw/aws/synthetic_aws_cur_guaranteed_leaks.csv"
+file_path = "data/raw/aws/synthetic_aws_cur_guaranteed_leaks.csv"
 # file_path = "data/raw/azure/synthetic_azure_cost_guaranteed_leaks.csv"
-file_path = "data/raw/gcp/synthetic_gcp_billing_guaranteed_leaks_realistic.csv"
+# file_path = "data/raw/gcp/synthetic_gcp_billing_guaranteed_leaks_realistic.csv"
 
 df = load_csv(file_path)
 
@@ -42,24 +49,11 @@ print("\nInput columns:")
 print(sorted(df.columns))
 
 
-# ---------------- PROVIDER DETECTION ----------------
+# ================== PROVIDER DETECTION ==================
 
-# ✅ 1. TRUST provider column if present (normalized or semi-normalized CSVs)
 if "provider" in df.columns:
-    provider = df["provider"].iloc[0]
-
-    if provider == "AWS":
-        normalized_df = normalize_aws(df)
-    elif provider == "Azure":
-        normalized_df = normalize_azure(df)
-    elif provider == "GCP":
-        normalized_df = normalize_gcp(df)
-    else:
-        raise ValueError(f"Unknown provider value: {provider}")
-
+    provider = df["provider"].iloc[0].upper()
     print(f"\nDetected provider from column: {provider}")
-
-# ✅ 2. FALLBACK to schema markers (raw CSVs only)
 else:
     cols = set(df.columns)
 
@@ -90,89 +84,106 @@ else:
     print("\nProvider marker matches:", matches)
 
     if sum(matches.values()) != 1:
-        raise ValueError(
-            f"Ambiguous or unknown billing format. Matches={matches}"
-        )
+        raise ValueError(f"Ambiguous or unknown billing format: {matches}")
 
-    if matches["AWS"]:
-        provider = "AWS"
-        normalized_df = normalize_aws(df)
-    elif matches["AZURE"]:
-        provider = "AZURE"
-        normalized_df = normalize_azure(df)
-    else:
-        provider = "GCP"
-        normalized_df = normalize_gcp(df)
+    provider = next(k for k, v in matches.items() if v)
 
     print(f"\nDetected provider from schema: {provider}")
 
+
+# ================== NORMALIZATION ==================
+
+if provider == "AWS":
+    normalized_df = normalize_aws(df)
+elif provider == "AZURE":
+    normalized_df = normalize_azure(df)
+elif provider == "GCP":
+    normalized_df = normalize_gcp(df)
+else:
+    raise ValueError(f"Unsupported provider: {provider}")
+
+normalized_df["provider"] = provider
 
 print("\nFinal normalized columns:", list(normalized_df.columns))
 print("Row count after normalization:", len(normalized_df))
 print(normalized_df.head())
 
 
-# ---------------- FEATURE ENGINEERING ----------------
+# ================== FEATURE ENGINEERING ==================
 
 daily_cost_df = daily_cost_per_service(normalized_df)
+trend_results = cost_trend_per_service(daily_cost_df)
+lifespan_results = resource_lifespan(normalized_df)
+ratio_results = usage_cost_ratio(normalized_df)
+
 print("\nDaily cost per service:")
 print(daily_cost_df.head())
 
-trend_results = cost_trend_per_service(daily_cost_df)
 print("\nCost trend per service:")
 print(trend_results)
 
-lifespan_results = resource_lifespan(normalized_df)
 print("\nResource lifespan:")
 print(lifespan_results)
 
-ratio_results = usage_cost_ratio(normalized_df)
 print("\nUsage to cost ratio:")
 print(ratio_results)
 
 
-# ---------------- LEAK DETECTION ----------------
+# ================== LEAK DETECTION ==================
 
-zombie_leaks = detect_zombie_resources(
-    lifespan_results,
-    ratio_results
-)
-print("\nZombie resource leaks:")
-print(zombie_leaks)
+zombie_leaks = detect_zombie_resources(lifespan_results, ratio_results)
+idle_leaks = detect_idle_resources(lifespan_results, ratio_results, daily_cost_df)
+runaway_leaks = detect_runaway_costs(daily_cost_df, ratio_results)
+always_on_leaks = detect_always_on_high_cost(daily_cost_df, normalized_df)
 
-idle_leaks = detect_idle_resources(
+orphaned_storage_leaks = detect_orphaned_storage(normalized_df)
+idle_db_leaks = detect_idle_databases(
     lifespan_results,
     ratio_results,
-    daily_cost_df
-)
-print("\nIdle resource leaks:")
-print(idle_leaks)
-
-runaway_leaks = detect_runaway_costs(
-    daily_cost_df,
-    ratio_results
-)
-print("\nRunaway cost leaks:")
-print(runaway_leaks)
-
-always_on_leaks = detect_always_on_high_cost(
     daily_cost_df,
     normalized_df
 )
-print("\nAlways-on high cost leaks:")
-print(always_on_leaks)
+snapshot_leaks = detect_snapshot_sprawl(normalized_df)
+print("\nSnapshot sprawl leaks:")
+print(snapshot_leaks)
+
+untagged_leaks = detect_untagged_resources(normalized_df)
 
 
-# ---------------- SCORING & INSIGHTS ----------------
+# ================== DEDUPLICATION ==================
 
-all_leaks = (
+def dedupe_leaks(leaks):
+    seen = set()
+    unique = []
+    for l in leaks:
+        key = (
+            l.get("leak_type"),
+            l.get("provider"),
+            l.get("service"),
+            l.get("resource_id"),
+        )
+        if key not in seen:
+            seen.add(key)
+            unique.append(l)
+    return unique
+
+
+all_leaks = dedupe_leaks(
     zombie_leaks +
     idle_leaks +
     runaway_leaks +
-    always_on_leaks
+    always_on_leaks +
+    orphaned_storage_leaks +
+    idle_db_leaks +
+    snapshot_leaks +
+    untagged_leaks
 )
 
+
+# ================== SCORING & INSIGHTS ==================
+
 scored_leaks = score_leaks(all_leaks)
+
 print("\nScored leaks:")
 print(scored_leaks)
 
