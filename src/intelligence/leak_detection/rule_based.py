@@ -1,3 +1,8 @@
+# ---------------- ALWAYS-ON HIGH COST RULE ----------------
+
+ALWAYS_ON_MIN_DAILY_COST = 100.0      # expensive
+ALWAYS_ON_PRESENCE_RATIO = 0.9        # present on 90% of days
+
 # ---------------- RUNAWAY RULE THRESHOLDS ----------------
 
 RUNAWAY_COST_GROWTH_PERCENT = 30     # %
@@ -239,30 +244,67 @@ def detect_runaway_costs(daily_cost_df, usage_ratio_data):
 
     return runaway_leaks
 
-def detect_always_on_high_cost(daily_cost_df, threshold=100):
+def detect_always_on_high_cost(daily_cost_df, normalized_df):
     """
-    Detects services that are always on and consistently expensive.
-
-    Rule:
-    - Average daily cost above threshold
+    Detect always-on, high-cost services with no clear ownership.
     """
 
     leaks = []
 
-    if daily_cost_df.empty:
-        return leaks
+    # Days present per service
+    days_present = (
+        daily_cost_df
+        .groupby(["provider", "service"])["date"]
+        .nunique()
+        .to_dict()
+    )
 
-    grouped = daily_cost_df.groupby(["provider", "service"])
+    total_days = daily_cost_df["date"].nunique()
 
-    for (provider, service), group in grouped:
-        avg_cost = group["daily_cost"].mean()
+    # Average daily cost per service
+    avg_daily_cost = (
+        daily_cost_df
+        .groupby(["provider", "service"])["daily_cost"]
+        .mean()
+        .to_dict()
+    )
 
-        if avg_cost >= threshold:
-            leaks.append({
-                "leak_type": "ALWAYS_ON_HIGH_COST",
-                "provider": provider,
-                "service": service,
-                "reason": f"Average daily cost {avg_cost:.2f} exceeds threshold {threshold}"
-            })
+    for (provider, service), avg_cost in avg_daily_cost.items():
+
+        category = get_service_category(service)
+
+        # 1️⃣ Only compute or database
+        if category not in {"compute", "database"}:
+            continue
+
+        # 2️⃣ Must be expensive
+        if avg_cost < ALWAYS_ON_MIN_DAILY_COST:
+            continue
+
+        # 3️⃣ Must be always-on
+        presence_ratio = days_present.get((provider, service), 0) / max(total_days, 1)
+        if presence_ratio < ALWAYS_ON_PRESENCE_RATIO:
+            continue
+
+        # 4️⃣ Ownership check (any tag is enough)
+        service_rows = normalized_df[
+            (normalized_df["provider"] == provider) &
+            (normalized_df["service"] == service)
+        ]
+
+        has_owner = any(
+            col for col in service_rows.columns
+            if "owner" in col.lower() or "project" in col.lower() or "environment" in col.lower()
+        )
+
+        if has_owner:
+            continue
+
+        leaks.append({
+            "leak_type": "ALWAYS_ON_HIGH_COST",
+            "provider": provider,
+            "service": service,
+            "reason": f"Service costs ${avg_cost:.2f}/day and runs continuously with no clear ownership",
+        })
 
     return leaks

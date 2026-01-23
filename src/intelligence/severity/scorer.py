@@ -107,3 +107,10 @@ def score_runaway_cost(leak):
         "severity": severity,
         "recommended_action": action
     }
+
+def score_always_on_high_cost(leak):
+    return {
+        **leak,
+        "severity": "HIGH",
+        "recommended_action": "Assign ownership and review necessity of this always-on service",
+    }
