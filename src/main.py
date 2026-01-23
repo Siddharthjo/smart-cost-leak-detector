@@ -27,12 +27,15 @@ from src.intelligence.leak_detection.structural import (
 )
 
 from src.intelligence.severity.scorer import score_leaks
-from src.insights.pretty_printer import print_clean_output
 
+from src.output.pretty_printer import (
+    select_primary_leaks,
+    print_clean_output,
+)
 
 # ================== INPUT ==================
 
-# Uncomment ONE at a time
+
 file_path = "data/raw/aws/synthetic_aws_cur_guaranteed_leaks.csv"
 # file_path = "data/raw/azure/synthetic_azure_cost_guaranteed_leaks.csv"
 # file_path = "data/raw/gcp/synthetic_gcp_billing_guaranteed_leaks_realistic.csv"
@@ -103,7 +106,12 @@ ratio_results = usage_cost_ratio(normalized_df)
 
 # ================== LEAK DETECTION ==================
 
-zombie_leaks = detect_zombie_resources(lifespan_results, ratio_results)
+zombie_leaks = detect_zombie_resources(
+    lifespan_results,
+    ratio_results,
+    normalized_df
+)
+
 idle_leaks = detect_idle_resources(lifespan_results, ratio_results, daily_cost_df)
 runaway_leaks = detect_runaway_costs(daily_cost_df, ratio_results)
 always_on_leaks = detect_always_on_high_cost(daily_cost_df, normalized_df)
@@ -154,5 +162,5 @@ all_leaks = dedupe_leaks(
 # ================== SCORING & OUTPUT ==================
 
 scored_leaks = score_leaks(all_leaks)
-
-print_clean_output(scored_leaks)
+primary_leaks = select_primary_leaks(scored_leaks)
+print_clean_output(primary_leaks)
