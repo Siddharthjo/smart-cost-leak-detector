@@ -27,7 +27,7 @@ from src.intelligence.leak_detection.structural import (
 )
 
 from src.intelligence.severity.scorer import score_leaks
-from src.insights.generator import generate_insights
+from src.insights.pretty_printer import print_clean_output
 
 
 # ================== INPUT ==================
@@ -45,50 +45,38 @@ print(message)
 if not is_valid:
     raise ValueError("Invalid CSV input")
 
-print("\nInput columns:")
-print(sorted(df.columns))
-
 
 # ================== PROVIDER DETECTION ==================
 
 if "provider" in df.columns:
     provider = df["provider"].iloc[0].upper()
-    print(f"\nDetected provider from column: {provider}")
 else:
     cols = set(df.columns)
 
-    aws_markers = {
-        "line_item_usage_account_id",
-        "line_item_line_item_type",
-        "bill_payer_account_id",
-    }
-
-    azure_markers = {
-        "SubscriptionId",
-        "UsageDate",
-        "MeterName",
-    }
-
-    gcp_markers = {
-        "billing_account_id",
-        "project_id",
-        "service_description",
-    }
-
     matches = {
-        "AWS": bool(aws_markers & cols),
-        "AZURE": bool(azure_markers & cols),
-        "GCP": bool(gcp_markers & cols),
+        "AWS": bool({
+            "line_item_usage_account_id",
+            "line_item_line_item_type",
+            "bill_payer_account_id",
+        } & cols),
+        "AZURE": bool({
+            "SubscriptionId",
+            "UsageDate",
+            "MeterName",
+        } & cols),
+        "GCP": bool({
+            "billing_account_id",
+            "project_id",
+            "service_description",
+        } & cols),
     }
-
-    print("\nProvider marker matches:", matches)
 
     if sum(matches.values()) != 1:
         raise ValueError(f"Ambiguous or unknown billing format: {matches}")
 
     provider = next(k for k, v in matches.items() if v)
 
-    print(f"\nDetected provider from schema: {provider}")
+print(f"\nDetected provider: {provider}")
 
 
 # ================== NORMALIZATION ==================
@@ -104,10 +92,6 @@ else:
 
 normalized_df["provider"] = provider
 
-print("\nFinal normalized columns:", list(normalized_df.columns))
-print("Row count after normalization:", len(normalized_df))
-print(normalized_df.head())
-
 
 # ================== FEATURE ENGINEERING ==================
 
@@ -115,18 +99,6 @@ daily_cost_df = daily_cost_per_service(normalized_df)
 trend_results = cost_trend_per_service(daily_cost_df)
 lifespan_results = resource_lifespan(normalized_df)
 ratio_results = usage_cost_ratio(normalized_df)
-
-print("\nDaily cost per service:")
-print(daily_cost_df.head())
-
-print("\nCost trend per service:")
-print(trend_results)
-
-print("\nResource lifespan:")
-print(lifespan_results)
-
-print("\nUsage to cost ratio:")
-print(ratio_results)
 
 
 # ================== LEAK DETECTION ==================
@@ -137,16 +109,15 @@ runaway_leaks = detect_runaway_costs(daily_cost_df, ratio_results)
 always_on_leaks = detect_always_on_high_cost(daily_cost_df, normalized_df)
 
 orphaned_storage_leaks = detect_orphaned_storage(normalized_df)
+
 idle_db_leaks = detect_idle_databases(
     lifespan_results,
     ratio_results,
     daily_cost_df,
     normalized_df
 )
-snapshot_leaks = detect_snapshot_sprawl(normalized_df)
-print("\nSnapshot sprawl leaks:")
-print(snapshot_leaks)
 
+snapshot_leaks = detect_snapshot_sprawl(normalized_df)
 untagged_leaks = detect_untagged_resources(normalized_df)
 
 
@@ -169,30 +140,19 @@ def dedupe_leaks(leaks):
 
 
 all_leaks = dedupe_leaks(
-    zombie_leaks +
-    idle_leaks +
-    runaway_leaks +
-    always_on_leaks +
-    orphaned_storage_leaks +
-    idle_db_leaks +
-    snapshot_leaks +
-    untagged_leaks
+    zombie_leaks
+    + idle_leaks
+    + runaway_leaks
+    + always_on_leaks
+    + orphaned_storage_leaks
+    + idle_db_leaks
+    + snapshot_leaks
+    + untagged_leaks
 )
 
 
-# ================== SCORING & INSIGHTS ==================
+# ================== SCORING & OUTPUT ==================
 
 scored_leaks = score_leaks(all_leaks)
 
-print("\nScored leaks:")
-print(scored_leaks)
-
-insights = generate_insights(scored_leaks)
-
-print("\n=== COST LEAK INSIGHTS ===")
-if not insights:
-    print("✅ No cost leaks detected.")
-else:
-    for insight in insights:
-        print(insight)
-        print("-" * 50)
+print_clean_output(scored_leaks)
