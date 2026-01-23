@@ -1,3 +1,67 @@
+# ---------------- SERVICE CATEGORIZATION ----------------
+
+COMPUTE_SERVICES = {
+    # AWS
+    "ec2",
+    # Azure
+    "virtual machines",
+    # GCP
+    "compute engine",
+}
+
+STORAGE_SERVICES = {
+    # AWS
+    "s3",
+    # Azure
+    "storage",
+    # GCP
+    "cloud storage",
+}
+
+SERVERLESS_SERVICES = {
+    # AWS
+    "lambda",
+    # Azure
+    "functions",
+    # GCP
+    "cloud functions",
+}
+
+DATABASE_SERVICES = {
+    # AWS
+    "rds",
+    # Azure
+    "sql",
+    "cosmos",
+    # GCP
+    "cloud sql",
+}
+
+def get_service_category(service_name: str) -> str:
+    """
+    Classify a cloud service into a category:
+    compute, storage, serverless, database, other
+    """
+
+    if not service_name:
+        return "other"
+
+    service = service_name.lower()
+
+    if any(key in service for key in COMPUTE_SERVICES):
+        return "compute"
+
+    if any(key in service for key in STORAGE_SERVICES):
+        return "storage"
+
+    if any(key in service for key in SERVERLESS_SERVICES):
+        return "serverless"
+
+    if any(key in service for key in DATABASE_SERVICES):
+        return "database"
+
+    return "other"
+
 def detect_idle_resources(usage_cost_ratios, threshold=0.1):
     """
     Detects idle or over-provisioned resources.
