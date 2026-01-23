@@ -22,18 +22,14 @@ def score_idle_resource(leak):
     Severity scoring for IDLE_RESOURCE leaks
     """
 
-    severity = "LOW"
-    action = "Review resource usage"
+    # Default for idle is MEDIUM
+    severity = "MEDIUM"
+    action = "Review and optimize idle resource usage"
 
-    reason = leak.get("reason", "").lower()
-
-    # crude cost-based inference from reason text (v1 logic)
-    if "0." in reason or "low" in reason:
-        severity = "LOW"
-        action = "Consider downsizing or stopping resource"
-    else:
-        severity = "MEDIUM"
-        action = "Downsize or stop unused resource"
+    # Production idle is HIGH severity
+    if is_production_resource(leak):
+        severity = "HIGH"
+        action = "Scale down or stop idle production resource immediately"
 
     return {
         **leak,
