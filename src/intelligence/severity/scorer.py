@@ -93,3 +93,17 @@ def score_leaks(leaks):
             })
 
     return scored
+
+def score_runaway_cost(leak):
+    severity = "MEDIUM"
+    action = "Investigate recent cost increase"
+
+    if is_production_resource(leak):
+        severity = "HIGH"
+        action = "Investigate runaway production cost immediately"
+
+    return {
+        **leak,
+        "severity": severity,
+        "recommended_action": action
+    }

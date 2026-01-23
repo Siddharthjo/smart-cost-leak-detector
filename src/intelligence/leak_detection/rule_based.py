@@ -1,3 +1,15 @@
+# ---------------- RUNAWAY RULE THRESHOLDS ----------------
+
+RUNAWAY_COST_GROWTH_PERCENT = 30     # %
+RUNAWAY_MIN_DAYS = 3
+RUNAWAY_MIN_DAILY_COST = 2.0
+
+# ---------------- IDLE RULE THRESHOLDS ----------------
+
+IDLE_USAGE_RATIO_THRESHOLD = 5      # usage-to-cost ratio
+IDLE_MIN_DAILY_COST = 1.0           # ignore tiny spend
+IDLE_MIN_DAYS_ACTIVE = 3            # sustained idle window
+
 # ---------------- ZOMBIE RULE THRESHOLDS ----------------
 
 ZOMBIE_DAYS_THRESHOLD = 14
@@ -67,35 +79,68 @@ def get_service_category(service_name: str) -> str:
 
     return "other"
 
-def detect_idle_resources(usage_cost_ratios, threshold=0.1):
+def detect_idle_resources(lifespan_data, usage_ratio_data, daily_cost_df):
     """
-    Detects idle or over-provisioned resources.
-
-    Rule:
-    - usage_to_cost_ratio very low
-    - cost is non-zero
-
-    threshold: lower means stricter detection
+    Detect idle compute resources:
+    Sustained low usage with meaningful cost.
     """
 
-    leaks = []
+    idle_leaks = []
 
-    for item in usage_cost_ratios:
-        ratio = item.get("usage_to_cost_ratio")
+    # Build quick lookups
+    usage_lookup = {
+        (item["provider"], item["service"], item["resource_id"]): item["usage_to_cost_ratio"]
+        for item in usage_ratio_data
+    }
 
-        if ratio is None:
+    daily_cost_lookup = (
+        daily_cost_df
+        .groupby(["provider", "service"])["daily_cost"]
+        .mean()
+        .to_dict()
+    )
+
+    for item in lifespan_data:
+        provider = item["provider"]
+        service = item["service"]
+        resource_id = item["resource_id"]
+        days_active = item["days_active"]
+
+        category = get_service_category(service)
+
+        # 1️⃣ Only compute resources
+        if category != "compute":
             continue
 
-        if ratio < threshold:
-            leaks.append({
-                "leak_type": "IDLE_RESOURCE",
-                "provider": item["provider"],
-                "service": item["service"],
-                "resource_id": item["resource_id"],
-                "reason": f"Low usage to cost ratio ({ratio:.4f})"
-            })
+        # 2️⃣ Must exist long enough
+        if days_active < IDLE_MIN_DAYS_ACTIVE:
+            continue
 
-    return leaks
+        usage_ratio = usage_lookup.get(
+            (provider, service, resource_id), None
+        )
+
+        # 3️⃣ Must have sustained low usage
+        if usage_ratio is None or usage_ratio > IDLE_USAGE_RATIO_THRESHOLD:
+            continue
+
+        avg_daily_cost = daily_cost_lookup.get(
+            (provider, service), 0
+        )
+
+        # 4️⃣ Ignore tiny spend
+        if avg_daily_cost < IDLE_MIN_DAILY_COST:
+            continue
+
+        idle_leaks.append({
+            "leak_type": "IDLE_RESOURCE",
+            "provider": provider,
+            "service": service,
+            "resource_id": resource_id,
+            "reason": f"Compute resource with sustained low usage and daily cost ${avg_daily_cost:.2f}",
+        })
+
+    return idle_leaks
 
 def detect_zombie_resources(lifespan_data, usage_ratio_data):
     """
@@ -145,26 +190,54 @@ def detect_zombie_resources(lifespan_data, usage_ratio_data):
 
     return zombies
 
-def detect_runaway_costs(cost_trends):
+def detect_runaway_costs(daily_cost_df, usage_ratio_data):
     """
-    Detects runaway cost increases.
-
-    Rule:
-    - Cost trend is INCREASING
+    Detect runaway costs:
+    Rapid cost increase without proportional usage growth.
     """
 
-    leaks = []
+    runaway_leaks = []
 
-    for item in cost_trends:
-        if item.get("trend") == "INCREASING":
-            leaks.append({
-                "leak_type": "RUNAWAY_COST",
-                "provider": item["provider"],
-                "service": item["service"],
-                "reason": "Cost increasing over time"
-            })
+    # Average usage ratio per service
+    usage_ratio_lookup = (
+        pd.DataFrame(usage_ratio_data)
+        .groupby(["provider", "service"])["usage_to_cost_ratio"]
+        .mean()
+        .to_dict()
+    )
 
-    return leaks
+    for (provider, service), group in daily_cost_df.groupby(["provider", "service"]):
+        if len(group) < RUNAWAY_MIN_DAYS:
+            continue
+
+        group = group.sort_values("date")
+
+        costs = group["daily_cost"].values
+
+        # Ignore low-cost services
+        if costs.mean() < RUNAWAY_MIN_DAILY_COST:
+            continue
+
+        # Calculate growth rate
+        growth = ((costs[-1] - costs[0]) / max(costs[0], 0.01)) * 100
+
+        if growth < RUNAWAY_COST_GROWTH_PERCENT:
+            continue
+
+        usage_ratio = usage_ratio_lookup.get((provider, service), None)
+
+        # Usage must NOT justify growth
+        if usage_ratio and usage_ratio > 10:
+            continue
+
+        runaway_leaks.append({
+            "leak_type": "RUNAWAY_COST",
+            "provider": provider,
+            "service": service,
+            "reason": f"Cost increased {growth:.1f}% over {len(costs)} days without matching usage growth",
+        })
+
+    return runaway_leaks
 
 def detect_always_on_high_cost(daily_cost_df, threshold=100):
     """
