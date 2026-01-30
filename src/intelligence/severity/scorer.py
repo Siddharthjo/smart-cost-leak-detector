@@ -1,5 +1,3 @@
-# src/intelligence/severity/scorer.py
-
 from typing import List, Dict
 
 # ===================== LEAK TYPE WEIGHTS =====================
@@ -36,7 +34,7 @@ def _severity_label(score: int) -> str:
 def score_leaks(leaks: List[Dict]) -> List[Dict]:
     """
     Assign severity score and severity label.
-    No cost estimates involved.
+    Directional only — no cost estimation.
     """
 
     scored = []
@@ -51,7 +49,7 @@ def score_leaks(leaks: List[Dict]) -> List[Dict]:
         reason = leak.get("reason", "").lower()
 
         # -------- RISK SIGNALS --------
-        if any(k in reason for k in ["grew", "increasing", "spike"]):
+        if any(k in reason for k in ["grew", "increase", "spike"]):
             score += 10
 
         if any(k in reason for k in ["30 days", "60 days", "90 days", "long-running"]):
@@ -70,7 +68,7 @@ def score_leaks(leaks: List[Dict]) -> List[Dict]:
         }:
             score -= 5
 
-        # Clamp
+        # Clamp score
         score = max(0, min(score, 100))
 
         severity = _severity_label(score)

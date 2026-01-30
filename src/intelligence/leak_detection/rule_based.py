@@ -1,7 +1,4 @@
 import pandas as pd
-from src.intelligence.severity.waste_estimator import (
-    lifespan_adjusted_waste,
-)
 
 # ===================== CONFIG =====================
 
@@ -42,9 +39,67 @@ def get_service_category(service_name: str) -> str:
 
     return "other"
 
+# ===================== ZOMBIE RESOURCES =====================
+
+def detect_zombie_resources(lifespan_results, usage_ratio_data):
+    """
+    Long-running resources with consistently inefficient usage.
+    Highest confidence compute waste signal.
+    """
+    leaks = []
+    zombie_resource_ids = set()
+
+    usage_lookup = {
+        (u["provider"], u["service"], u["resource_id"]): u["usage_to_cost_ratio"]
+        for u in usage_ratio_data
+    }
+
+    for r in lifespan_results:
+        provider = r["provider"]
+        service = r["service"]
+        resource_id = r["resource_id"]
+        days_active = r["days_active"]
+
+        usage_ratio = usage_lookup.get((provider, service, resource_id))
+        if usage_ratio is None:
+            continue
+
+        # Provider-aware thresholds (documented)
+        if provider == "AWS":
+            threshold = 0.05
+        elif provider == "AZURE":
+            threshold = 0.10
+        else:  # GCP
+            threshold = 3.0  # GCP reports usage very differently
+
+        if days_active >= ZOMBIE_MIN_DAYS and usage_ratio < threshold:
+            zombie_resource_ids.add(resource_id)
+
+            leaks.append({
+                "leak_type": "ZOMBIE_RESOURCE",
+                "provider": provider,
+                "service": service,
+                "resource_id": resource_id,
+                "reason": (
+                    f"Active {days_active} days with inefficient usage "
+                    f"({usage_ratio:.2f})"
+                ),
+            })
+
+    return leaks, zombie_resource_ids
+
 # ===================== IDLE RESOURCES =====================
 
-def detect_idle_resources(lifespan_data, usage_ratio_data, daily_cost_df):
+def detect_idle_resources(
+    lifespan_data,
+    usage_ratio_data,
+    daily_cost_df,
+    excluded_resource_ids: set,
+):
+    """
+    Shorter-lived, low-usage compute.
+    Explicitly excludes zombie resources.
+    """
     leaks = []
 
     usage_lookup = {
@@ -62,15 +117,18 @@ def detect_idle_resources(lifespan_data, usage_ratio_data, daily_cost_df):
     for r in lifespan_data:
         provider = r["provider"]
         service = r["service"]
-        rid = r["resource_id"]
+        resource_id = r["resource_id"]
         days = r["days_active"]
+
+        if resource_id in excluded_resource_ids:
+            continue
 
         if get_service_category(service) != "compute":
             continue
         if days < IDLE_MIN_DAYS_ACTIVE:
             continue
 
-        usage_ratio = usage_lookup.get((provider, service, rid))
+        usage_ratio = usage_lookup.get((provider, service, resource_id))
         if usage_ratio is None or usage_ratio > IDLE_USAGE_RATIO_THRESHOLD:
             continue
 
@@ -82,65 +140,7 @@ def detect_idle_resources(lifespan_data, usage_ratio_data, daily_cost_df):
             "leak_type": "IDLE_RESOURCE",
             "provider": provider,
             "service": service,
-            "resource_id": rid,
-            "reason": f"Low usage ({usage_ratio:.2f}) with daily cost ${daily_cost:.2f}",
-            "estimated_monthly_waste": round(daily_cost * 30, 2),
-        })
-
-    return leaks
-
-# ===================== ZOMBIE RESOURCES =====================
-
-def detect_zombie_resources(lifespan_results, usage_ratio_data, normalized_df):
-    leaks = []
-
-    usage_lookup = {
-        (u["provider"], u["service"], u["resource_id"]): u["usage_to_cost_ratio"]
-        for u in usage_ratio_data
-    }
-
-    daily_cost_lookup = (
-        normalized_df
-        .groupby(["provider", "service", "resource_id"])["cost"]
-        .mean()
-        .to_dict()
-    )
-
-    for r in lifespan_results:
-        provider = r["provider"]
-        service = r["service"]
-        rid = r["resource_id"]
-        days = r["days_active"]
-
-        usage_ratio = usage_lookup.get((provider, service, rid))
-        if usage_ratio is None:
-            continue
-
-        # Provider-aware thresholds
-        if provider == "AWS":
-            threshold = 0.05
-        elif provider == "AZURE":
-            threshold = 0.1
-        else:  # GCP
-            threshold = 3.0
-
-        if days < ZOMBIE_MIN_DAYS or usage_ratio >= threshold:
-            continue
-
-        avg_daily_cost = daily_cost_lookup.get(
-            (provider, service, rid), 0
-        )
-
-        estimated_monthly_waste = lifespan_adjusted_waste(
-            avg_daily_cost,
-            days
-        )
-
-        leaks.append({
-            "leak_type": "IDLE_RESOURCE",
-            "provider": provider,
-            "service": service,
-            "resource_id": rid,
+            "resource_id": resource_id,
             "reason": f"Low usage detected over {days} days",
         })
 
@@ -149,6 +149,9 @@ def detect_zombie_resources(lifespan_results, usage_ratio_data, normalized_df):
 # ===================== RUNAWAY COSTS =====================
 
 def detect_runaway_costs(daily_cost_df, usage_ratio_data):
+    """
+    Rapid cost growth over a short period.
+    """
     leaks = []
 
     usage_lookup = (
@@ -177,16 +180,13 @@ def detect_runaway_costs(daily_cost_df, usage_ratio_data):
         if usage_ratio is not None and usage_ratio > 10:
             continue
 
-        start_cost = costs[0]
-        end_cost = costs[-1]
-
         leaks.append({
             "leak_type": "RUNAWAY_COST",
             "provider": provider,
             "service": service,
             "reason": (
-                f"Daily cost increased from ${start_cost:.2f} "
-                f"to ${end_cost:.2f} over {len(costs)} days"
+                f"Daily cost increased from ${costs[0]:.2f} "
+                f"to ${costs[-1]:.2f} over {len(costs)} days"
             ),
         })
 
@@ -195,6 +195,9 @@ def detect_runaway_costs(daily_cost_df, usage_ratio_data):
 # ===================== ALWAYS-ON HIGH COST =====================
 
 def detect_always_on_high_cost(daily_cost_df, normalized_df):
+    """
+    Consistently expensive compute or database services with no ownership.
+    """
     leaks = []
 
     total_days = daily_cost_df["date"].nunique()
@@ -241,7 +244,6 @@ def detect_always_on_high_cost(daily_cost_df, normalized_df):
             "provider": provider,
             "service": service,
             "reason": f"Always-on service costing ${cost:.2f}/day with no ownership",
-            "estimated_monthly_waste": round(cost * 30, 2),
         })
 
     return leaks

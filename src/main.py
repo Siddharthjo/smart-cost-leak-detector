@@ -35,7 +35,6 @@ from src.output.pretty_printer import (
 
 # ================== INPUT ==================
 
-
 file_path = "data/raw/aws/synthetic_aws_cur_guaranteed_leaks.csv"
 # file_path = "data/raw/azure/synthetic_azure_cost_guaranteed_leaks.csv"
 # file_path = "data/raw/gcp/synthetic_gcp_billing_guaranteed_leaks_realistic.csv"
@@ -106,15 +105,24 @@ ratio_results = usage_cost_ratio(normalized_df)
 
 # ================== LEAK DETECTION ==================
 
-zombie_leaks = detect_zombie_resources(
+zombie_leaks, zombie_resource_ids = detect_zombie_resources(
     lifespan_results,
-    ratio_results,
-    normalized_df
+    ratio_results
 )
 
-idle_leaks = detect_idle_resources(lifespan_results, ratio_results, daily_cost_df)
+idle_leaks = detect_idle_resources(
+    lifespan_results,
+    ratio_results,
+    daily_cost_df,
+    excluded_resource_ids=zombie_resource_ids
+)
+
 runaway_leaks = detect_runaway_costs(daily_cost_df, ratio_results)
-always_on_leaks = detect_always_on_high_cost(daily_cost_df, normalized_df)
+
+always_on_leaks = detect_always_on_high_cost(
+    daily_cost_df,
+    normalized_df
+)
 
 orphaned_storage_leaks = detect_orphaned_storage(normalized_df)
 
@@ -126,8 +134,8 @@ idle_db_leaks = detect_idle_databases(
 )
 
 snapshot_leaks = detect_snapshot_sprawl(normalized_df)
-untagged_leaks = detect_untagged_resources(normalized_df)
 
+untagged_leaks = detect_untagged_resources(normalized_df)
 
 # ================== DEDUPLICATION ==================
 
