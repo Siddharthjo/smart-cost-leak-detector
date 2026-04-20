@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/pipeline.py'\\).read\\(\\)\\); print\\('pipeline.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/api.py'\\).read\\(\\)\\); print\\('api.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/main.py'\\).read\\(\\)\\); print\\('main.py OK'\\)\")",
+      "Bash(python3 *)",
+      "Bash(python -m pytest tests/normalization/test_normalizers.py -q)"
+    ]
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-04-20T09:43:26.498372Z",
+  "summary": {
+    "total_leaks": 3,
+    "new_leaks": 3,
+    "high": 0,
+    "medium": 3,
+    "low": 0,
+    "estimated_total_monthly_waste_usd": 1535.7,
+    "estimated_total_annual_waste_usd": 18428.4
+  },
+  "leaks": [
+    {
+      "leak_type": "RUNAWAY_COST",
+      "provider": "AWS",
+      "service": "AmazonS3",
+      "reason": "Cost spike: $512.00/day is 4.8 stddevs above 7-day baseline of $72.57",
+      "z_score": 4.79,
+      "severity_score": 65,
+      "severity": "MEDIUM",
+      "recommended_action": "Review and schedule remediation within this sprint",
+      "estimated_monthly_waste": 920.7,
+      "estimated_annual_waste": 11048.4,
+      "confidence": "MEDIUM",
+      "status": "NEW"
+    },
+    {
+      "leak_type": "ZOMBIE_RESOURCE",
+      "provider": "AWS",
+      "service": "AmazonRDS",
+      "resource_id": "rds-idle-001",
+      "reason": "Active 30 days with usage-to-cost ratio of 0.0017 (below service p25 threshold 0.0500)",
+      "severity_score": 50,
+      "severity": "MEDIUM",
+      "recommended_action": "Review and schedule remediation within this sprint",
+      "estimated_monthly_waste": 360.0,
+      "estimated_annual_waste": 4320.0,
+      "confidence": "HIGH",
+      "status": "NEW"
+    },
+    {
+      "leak_type": "ZOMBIE_RESOURCE",
+      "provider": "AWS",
+      "service": "AmazonEC2",
+      "resource_id": "i-zombie-ec2-999",
+      "reason": "Active 90 days with usage-to-cost ratio of 0.0012 (below service p25 threshold 0.0500)",
+      "severity_score": 50,
+      "severity": "MEDIUM",
+      "recommended_action": "Review and schedule remediation within this sprint",
+      "estimated_monthly_waste": 255.0,
+      "estimated_annual_waste": 3060.0,
+      "confidence": "HIGH",
+      "status": "NEW"
+    }
+  ],
+  "forecasts": [
+    {
+      "provider": "AWS",
+      "service": "AmazonS3",
+      "projected_monthly_cost": 49419.09,
+      "last_30d_actual": 3069.0,
+      "trend_pct": 1510.3
+    },
+    {
+      "provider": "AWS",
+      "service": "AmazonRDS",
+      "projected_monthly_cost": 360.0,
+      "last_30d_actual": 360.0,
+      "trend_pct": 0.0
+    },
+    {
+      "provider": "AWS",
+      "service": "AmazonEC2",
+      "projected_monthly_cost": 255.0,
+      "last_30d_actual": 255.0,
+      "trend_pct": 0.0
+    }
+  ],
+  "pipeline_stats": {
+    "total_records_ingested": 130,
+    "records_after_normalization": 130,
+    "provider": "AWS",
+    "file": "data/raw/aws/synthetic_aws_cur_guaranteed_leaks.csv",
+    "llm_enabled": false,
+    "forecast_services": 3
+  }
+}

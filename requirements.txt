@@ -1,1 +1,8 @@
 pandas
+numpy
+pyarrow
+anthropic
+fastapi
+uvicorn[standard]
+python-multipart
+boto3

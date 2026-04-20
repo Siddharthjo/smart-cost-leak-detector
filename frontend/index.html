@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Cost Leak Detector</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { --accent: #6366f1; }
+    .tab-active  { border-bottom: 2px solid var(--accent); color: var(--accent); }
+    .tab-inactive{ border-bottom: 2px solid transparent; color: #6b7280; }
+    .sev-HIGH   { background:#fee2e2; color:#991b1b; }
+    .sev-MEDIUM { background:#fef3c7; color:#92400e; }
+    .sev-LOW    { background:#d1fae5; color:#065f46; }
+    .fade-in { animation: fadeIn .35s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+    input[type=file] { display:none; }
+    .drop-zone.over { border-color: var(--accent); background:#eef2ff; }
+    .spinner { border:3px solid #e5e7eb; border-top-color: var(--accent);
+               border-radius:50%; width:28px; height:28px; animation:spin .7s linear infinite; display:inline-block; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans text-gray-800">
+
+<!-- ===== HEADER ===== -->
+<header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3 shadow-sm">
+  <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round"
+          d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+    <path stroke-linecap="round" stroke-linejoin="round"
+          d="M12 8v4m0 4h.01"/>
+  </svg>
+  <div>
+    <h1 class="text-xl font-bold tracking-tight text-gray-900">Smart Cost Leak Detector</h1>
+    <p class="text-xs text-gray-500">AI-powered cloud billing analysis — AWS · Azure · GCP</p>
+  </div>
+</header>
+
+<main class="max-w-4xl mx-auto px-4 py-8 space-y-8">
+
+  <!-- ===== MODE TABS ===== -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="flex border-b border-gray-200 px-1">
+      <button id="tab-upload" onclick="switchTab('upload')"
+              class="tab-active px-6 py-3 text-sm font-medium transition-colors">
+        Upload File
+      </button>
+      <button id="tab-aws" onclick="switchTab('aws')"
+              class="tab-inactive px-6 py-3 text-sm font-medium transition-colors">
+        AWS Live Credentials
+      </button>
+    </div>
+
+    <!-- ===== UPLOAD PANEL ===== -->
+    <div id="panel-upload" class="p-6 space-y-5">
+      <div id="drop-zone"
+           class="drop-zone border-2 border-dashed border-gray-300 rounded-lg p-10 text-center cursor-pointer
+                  transition-colors hover:border-indigo-400 hover:bg-indigo-50"
+           onclick="document.getElementById('file-input').click()"
+           ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+        <svg class="mx-auto mb-3 w-10 h-10 text-gray-400" fill="none" stroke="currentColor"
+             stroke-width="1.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+        </svg>
+        <p class="text-gray-600 font-medium">Drop your billing file here</p>
+        <p class="text-xs text-gray-400 mt-1">CSV or Parquet · AWS CUR · Azure Usage · GCP Billing</p>
+        <p id="file-name" class="mt-2 text-sm font-semibold text-indigo-600"></p>
+      </div>
+      <input type="file" id="file-input" accept=".csv,.parquet,.pqt" onchange="onFileSelect(event)" />
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Provider (optional)</label>
+          <select id="upload-provider" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            <option value="">Auto-detect</option>
+            <option value="aws">AWS</option>
+            <option value="azure">Azure</option>
+            <option value="gcp">GCP</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Top Untagged Resources</label>
+          <input type="number" id="upload-top-untagged" value="20" min="1" max="100"
+                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+      </div>
+
+      <details class="group">
+        <summary class="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800 select-none">
+          Advanced options
+        </summary>
+        <div class="mt-3 grid grid-cols-2 gap-4">
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" id="upload-use-llm" class="rounded text-indigo-600" />
+            Enable Claude AI recommendations
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" id="upload-no-forecast" class="rounded text-indigo-600" />
+            Skip 30-day forecast
+          </label>
+          <div class="col-span-2">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Anthropic API Key (for Claude AI)</label>
+            <input type="password" id="upload-api-key" placeholder="sk-ant-..."
+                   class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          </div>
+        </div>
+      </details>
+
+      <button onclick="submitUpload()"
+              class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm">
+        Analyze File
+      </button>
+    </div>
+
+    <!-- ===== AWS PANEL ===== -->
+    <div id="panel-aws" class="p-6 space-y-5 hidden">
+      <div class="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+        <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 15.75h.007v.008H12v-.008z"/>
+        </svg>
+        <span>Credentials are used only for the AWS Cost Explorer API call and are <strong>never stored, logged, or persisted</strong> in any way.</span>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">AWS Access Key ID <span class="text-red-500">*</span></label>
+          <input type="text" id="aws-access-key" placeholder="AKIAIOSFODNN7EXAMPLE"
+                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">AWS Secret Access Key <span class="text-red-500">*</span></label>
+          <input type="password" id="aws-secret-key" placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Session Token <span class="text-gray-400">(optional, for STS/assumed roles)</span></label>
+          <input type="password" id="aws-session-token" placeholder="Leave blank for long-term credentials"
+                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Region</label>
+            <select id="aws-region" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+              <option value="us-east-1">us-east-1 (N. Virginia)</option>
+              <option value="us-east-2">us-east-2 (Ohio)</option>
+              <option value="us-west-1">us-west-1 (N. California)</option>
+              <option value="us-west-2">us-west-2 (Oregon)</option>
+              <option value="eu-west-1">eu-west-1 (Ireland)</option>
+              <option value="eu-west-2">eu-west-2 (London)</option>
+              <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+              <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+              <option value="ap-southeast-2">ap-southeast-2 (Sydney)</option>
+              <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Lookback (days)</label>
+            <input type="number" id="aws-days" value="30" min="7" max="90"
+                   class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          </div>
+        </div>
+      </div>
+
+      <details class="group">
+        <summary class="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800 select-none">
+          Advanced options
+        </summary>
+        <div class="mt-3 grid grid-cols-2 gap-4">
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" id="aws-use-llm" class="rounded text-indigo-600" />
+            Enable Claude AI recommendations
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" id="aws-no-forecast" class="rounded text-indigo-600" />
+            Skip 30-day forecast
+          </label>
+          <div class="col-span-2">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Anthropic API Key (for Claude AI)</label>
+            <input type="password" id="aws-anthropic-key" placeholder="sk-ant-..."
+                   class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          </div>
+        </div>
+      </details>
+
+      <button onclick="submitAWS()"
+              class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm">
+        Connect &amp; Analyze
+      </button>
+    </div>
+  </div>
+
+  <!-- ===== LOADING ===== -->
+  <div id="loading" class="hidden text-center py-12 fade-in">
+    <div class="spinner mx-auto mb-4"></div>
+    <p class="text-gray-600 font-medium" id="loading-msg">Running pipeline…</p>
+    <p class="text-xs text-gray-400 mt-1">This may take 15–60 seconds depending on data size</p>
+  </div>
+
+  <!-- ===== ERROR ===== -->
+  <div id="error-banner" class="hidden bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 fade-in">
+    <strong>Error: </strong><span id="error-text"></span>
+  </div>
+
+  <!-- ===== RESULTS ===== -->
+  <div id="results" class="hidden space-y-6 fade-in">
+
+    <!-- Summary cards -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+        <p class="text-3xl font-bold text-gray-900" id="res-total">0</p>
+        <p class="text-xs text-gray-500 mt-1">Total Leaks</p>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+        <p class="text-3xl font-bold text-emerald-600" id="res-waste">$0</p>
+        <p class="text-xs text-gray-500 mt-1">Est. Monthly Waste</p>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+        <p class="text-3xl font-bold text-red-600" id="res-high">0</p>
+        <p class="text-xs text-gray-500 mt-1">High Severity</p>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+        <p class="text-3xl font-bold text-amber-500" id="res-medium">0</p>
+        <p class="text-xs text-gray-500 mt-1">Medium Severity</p>
+      </div>
+    </div>
+
+    <!-- Annual waste banner -->
+    <div id="annual-banner" class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-center justify-between">
+      <span class="text-sm text-indigo-800">Estimated annual waste if not addressed</span>
+      <span class="text-xl font-bold text-indigo-700" id="res-annual">$0</span>
+    </div>
+
+    <!-- Filters -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs font-medium text-gray-500 mr-1">Filter:</span>
+      <button onclick="filterLeaks('ALL')"    id="filter-ALL"    class="filter-btn active px-3 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">All</button>
+      <button onclick="filterLeaks('HIGH')"   id="filter-HIGH"   class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">HIGH</button>
+      <button onclick="filterLeaks('MEDIUM')" id="filter-MEDIUM" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">MEDIUM</button>
+      <button onclick="filterLeaks('LOW')"    id="filter-LOW"    class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">LOW</button>
+      <div class="ml-auto">
+        <button onclick="downloadJSON()" class="text-xs text-indigo-600 hover:underline font-medium">Download JSON</button>
+      </div>
+    </div>
+
+    <!-- Leak list -->
+    <div id="leak-list" class="space-y-3"></div>
+
+    <!-- Forecasts -->
+    <div id="forecast-section" class="hidden">
+      <h2 class="text-sm font-semibold text-gray-700 mb-3">30-Day Cost Forecast</h2>
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto">
+        <table class="w-full text-xs">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="text-left px-4 py-2 font-medium text-gray-500">Service</th>
+              <th class="text-right px-4 py-2 font-medium text-gray-500">Last 30d Actual</th>
+              <th class="text-right px-4 py-2 font-medium text-gray-500">Projected Monthly</th>
+              <th class="text-right px-4 py-2 font-medium text-gray-500">Trend</th>
+            </tr>
+          </thead>
+          <tbody id="forecast-body" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+// ===== STATE =====
+let currentTab = 'upload';
+let selectedFile = null;
+let lastResult  = null;
+let currentFilter = 'ALL';
+
+// ===== TABS =====
+function switchTab(tab) {
+  currentTab = tab;
+  ['upload', 'aws'].forEach(t => {
+    document.getElementById(`panel-${t}`).classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById(`tab-${t}`);
+    btn.className = t === tab
+      ? 'tab-active px-6 py-3 text-sm font-medium transition-colors'
+      : 'tab-inactive px-6 py-3 text-sm font-medium transition-colors';
+  });
+  clearError();
+}
+
+// ===== FILE DRAG & DROP =====
+function onDragOver(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.add('over');
+}
+function onDragLeave(e) {
+  document.getElementById('drop-zone').classList.remove('over');
+}
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+}
+function onFileSelect(e) {
+  const f = e.target.files[0];
+  if (f) setFile(f);
+}
+function setFile(f) {
+  selectedFile = f;
+  document.getElementById('file-name').textContent = f.name;
+}
+
+// ===== SUBMIT UPLOAD =====
+async function submitUpload() {
+  if (!selectedFile) { showError('Please select a file first.'); return; }
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+  const prov = document.getElementById('upload-provider').value;
+  if (prov) fd.append('provider', prov);
+  fd.append('use_llm',      document.getElementById('upload-use-llm').checked);
+  fd.append('no_forecast',  document.getElementById('upload-no-forecast').checked);
+  fd.append('top_untagged', document.getElementById('upload-top-untagged').value);
+  const key = document.getElementById('upload-api-key').value.trim();
+  if (key) fd.append('api_key', key);
+
+  await runAnalysis('/api/analyze/upload', fd, 'Analyzing billing file…');
+}
+
+// ===== SUBMIT AWS =====
+async function submitAWS() {
+  const ak = document.getElementById('aws-access-key').value.trim();
+  const sk = document.getElementById('aws-secret-key').value.trim();
+  if (!ak || !sk) { showError('Access Key ID and Secret Access Key are required.'); return; }
+
+  const body = {
+    access_key_id:     ak,
+    secret_access_key: sk,
+    region:            document.getElementById('aws-region').value,
+    days:              parseInt(document.getElementById('aws-days').value, 10),
+    use_llm:           document.getElementById('aws-use-llm').checked,
+    no_forecast:       document.getElementById('aws-no-forecast').checked,
+    top_untagged:      20,
+  };
+
+  const st = document.getElementById('aws-session-token').value.trim();
+  if (st) body.session_token = st;
+
+  const antKey = document.getElementById('aws-anthropic-key').value.trim();
+  if (antKey) body.api_key = antKey;
+
+  await runAnalysis('/api/analyze/aws', JSON.stringify(body), 'Connecting to AWS Cost Explorer…', 'application/json');
+}
+
+// ===== CORE ANALYSIS RUNNER =====
+async function runAnalysis(url, body, loadingMsg, contentType) {
+  clearError();
+  hideResults();
+  showLoading(loadingMsg);
+
+  try {
+    const opts = { method: 'POST', body };
+    if (contentType) opts.headers = { 'Content-Type': contentType };
+    const resp = await fetch(url, opts);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      showError(data.detail || `Server error ${resp.status}`);
+      return;
+    }
+
+    lastResult = data;
+    renderResults(data);
+  } catch (err) {
+    showError(`Network error: ${err.message}`);
+  } finally {
+    hideLoading();
+  }
+}
+
+// ===== RENDER RESULTS =====
+function renderResults(data) {
+  const s = data.summary || {};
+  document.getElementById('res-total').textContent  = s.total_leaks ?? 0;
+  document.getElementById('res-waste').textContent  = '$' + fmt(s.estimated_monthly_waste_usd ?? 0);
+  document.getElementById('res-annual').textContent = '$' + fmt(s.estimated_annual_waste_usd ?? 0);
+  document.getElementById('res-high').textContent   = s.high ?? 0;
+  document.getElementById('res-medium').textContent = s.medium ?? 0;
+
+  renderLeaks(data.leaks || [], currentFilter);
+  renderForecasts(data.forecasts || []);
+
+  document.getElementById('results').classList.remove('hidden');
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderLeaks(leaks, filter) {
+  const filtered = filter === 'ALL' ? leaks : leaks.filter(l => l.severity === filter);
+  const el = document.getElementById('leak-list');
+
+  if (!filtered.length) {
+    el.innerHTML = `<p class="text-sm text-gray-400 text-center py-6">No ${filter === 'ALL' ? '' : filter + ' '}leaks found.</p>`;
+    return;
+  }
+
+  el.innerHTML = filtered.map(leak => `
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-2">
+      <div class="flex items-start justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="sev-${leak.severity} text-xs font-bold px-2 py-0.5 rounded-full">${leak.severity}</span>
+          <span class="text-sm font-semibold text-gray-800">${fmtType(leak.leak_type)}</span>
+          <span class="text-xs text-gray-400">${leak.provider ?? ''} · ${leak.service ?? ''}</span>
+        </div>
+        <span class="text-sm font-bold text-red-600 shrink-0">$${fmt(leak.estimated_monthly_waste ?? 0)}/mo</span>
+      </div>
+      ${leak.resource_id ? `<p class="text-xs text-gray-500 font-mono truncate">Resource: ${leak.resource_id}</p>` : ''}
+      <p class="text-xs text-gray-600">${leak.reason ?? ''}</p>
+      ${leak.recommended_action ? `<p class="text-xs text-indigo-700 font-medium">Recommendation: ${leak.recommended_action}</p>` : ''}
+      ${leak.llm_recommendation ? renderLLMRec(leak.llm_recommendation) : ''}
+      <div class="flex gap-3 text-xs text-gray-400">
+        <span>Score: ${leak.severity_score ?? 'N/A'}</span>
+        <span>Confidence: ${leak.confidence ?? 'N/A'}</span>
+        ${leak.estimated_annual_waste ? `<span>Annual: $${fmt(leak.estimated_annual_waste)}</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderLLMRec(rec) {
+  if (!rec || typeof rec !== 'object') return '';
+  return `
+    <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-xs space-y-1">
+      <p class="font-semibold text-indigo-700">Claude AI Recommendation</p>
+      ${rec.root_cause ? `<p><span class="font-medium">Root cause:</span> ${rec.root_cause}</p>` : ''}
+      ${rec.fix_command ? `<p><span class="font-medium">Fix:</span> <code class="bg-white px-1 rounded">${rec.fix_command}</code></p>` : ''}
+      ${rec.estimated_remediation_minutes ? `<p><span class="font-medium">Est. time:</span> ${rec.estimated_remediation_minutes} min</p>` : ''}
+      ${rec.risk_level ? `<p><span class="font-medium">Risk:</span> ${rec.risk_level}${rec.risk_note ? ' — ' + rec.risk_note : ''}</p>` : ''}
+    </div>`;
+}
+
+function renderForecasts(forecasts) {
+  const sec  = document.getElementById('forecast-section');
+  const body = document.getElementById('forecast-body');
+  if (!forecasts.length) { sec.classList.add('hidden'); return; }
+
+  body.innerHTML = forecasts.slice(0, 15).map(f => {
+    const trendClass = f.trend_pct > 15 ? 'text-red-600 font-semibold' :
+                       f.trend_pct < 0  ? 'text-green-600' : 'text-gray-700';
+    const trendStr = (f.trend_pct > 0 ? '+' : '') + (f.trend_pct ?? 0).toFixed(1) + '%';
+    return `<tr class="hover:bg-gray-50">
+      <td class="px-4 py-2 font-medium text-gray-800">${f.service}</td>
+      <td class="px-4 py-2 text-right text-gray-600">$${fmt(f.last_30d_actual ?? 0)}</td>
+      <td class="px-4 py-2 text-right text-gray-800 font-medium">$${fmt(f.projected_monthly_cost ?? 0)}</td>
+      <td class="px-4 py-2 text-right ${trendClass}">${trendStr}</td>
+    </tr>`;
+  }).join('');
+
+  sec.classList.remove('hidden');
+}
+
+// ===== FILTER =====
+function filterLeaks(filter) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    const active = btn.id === `filter-${filter}`;
+    btn.className = `filter-btn px-3 py-1 rounded-full text-xs font-medium ${
+      active ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}`;
+  });
+  if (lastResult) renderLeaks(lastResult.leaks || [], filter);
+}
+
+// ===== DOWNLOAD =====
+function downloadJSON() {
+  if (!lastResult) return;
+  const blob = new Blob([JSON.stringify(lastResult, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `cost-leak-report-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+}
+
+// ===== UI HELPERS =====
+function showLoading(msg) {
+  document.getElementById('loading-msg').textContent = msg;
+  document.getElementById('loading').classList.remove('hidden');
+}
+function hideLoading() {
+  document.getElementById('loading').classList.add('hidden');
+}
+function showError(msg) {
+  document.getElementById('error-text').textContent = msg;
+  document.getElementById('error-banner').classList.remove('hidden');
+}
+function clearError() {
+  document.getElementById('error-banner').classList.add('hidden');
+}
+function hideResults() {
+  document.getElementById('results').classList.add('hidden');
+}
+function fmt(n) {
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtType(t) {
+  return (t || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+</script>
+</body>
+</html>

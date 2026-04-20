@@ -1,0 +1,1 @@
+["RUNAWAY_COST::AWS::AmazonS3::None", "ZOMBIE_RESOURCE::AWS::AmazonRDS::rds-idle-001", "ZOMBIE_RESOURCE::AWS::AmazonEC2::i-zombie-ec2-999"]

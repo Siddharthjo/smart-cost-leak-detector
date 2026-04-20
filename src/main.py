@@ -1,174 +1,126 @@
+"""
+Smart Cloud Cost Leak Detector
+===============================
+Entry point. Runs the full detection pipeline.
+
+Usage:
+    python -m src.main --file data/raw/aws/cur.csv
+    python -m src.main --file data/raw/aws/cur.csv --llm --output both
+    python -m src.main --file data/raw/aws/cur.parquet --provider aws --output json
+    python -m src.main --file data/raw/aws/cur.csv --no-forecast --output console
+"""
+
+import argparse
+import logging
+import sys
+
+# ===================== LOGGING =====================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger(__name__)
+
+# ===================== IMPORTS =====================
+
 from src.ingestion.csv_loader import load_csv
 from src.ingestion.file_validator import validate_csv
 
-from src.normalization.aws_normalizer import normalize_aws
-from src.normalization.azure_normalizer import normalize_azure
-from src.normalization.gcp_normalizer import normalize_gcp
-
-from src.intelligence.feature_engineering.cost_features import (
-    daily_cost_per_service,
-    cost_trend_per_service,
-    resource_lifespan,
-    usage_cost_ratio,
-)
-
-from src.intelligence.leak_detection.rule_based import (
-    detect_idle_resources,
-    detect_zombie_resources,
-    detect_runaway_costs,
-    detect_always_on_high_cost,
-)
-
-from src.intelligence.leak_detection.structural import (
-    detect_orphaned_storage,
-    detect_idle_databases,
-    detect_snapshot_sprawl,
-    detect_untagged_resources,
-)
-
-from src.intelligence.severity.scorer import score_leaks
-
-from src.output.pretty_printer import (
-    select_primary_leaks,
-    print_clean_output,
-)
-
-# ================== INPUT ==================
-
-file_path = "data/raw/aws/synthetic_aws_cur_guaranteed_leaks.csv"
-# file_path = "data/raw/azure/synthetic_azure_cost_guaranteed_leaks.csv"
-# file_path = "data/raw/gcp/synthetic_gcp_billing_guaranteed_leaks_realistic.csv"
-
-df = load_csv(file_path)
-
-is_valid, message = validate_csv(file_path, df)
-print(message)
-
-if not is_valid:
-    raise ValueError("Invalid CSV input")
+from src.pipeline import run_pipeline_from_df
+from src.output.pretty_printer import print_clean_output
+from src.output.report_writer import save_json_report, save_markdown_report
 
 
-# ================== PROVIDER DETECTION ==================
+# ===================== CLI =====================
 
-if "provider" in df.columns:
-    provider = df["provider"].iloc[0].upper()
-else:
-    cols = set(df.columns)
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Smart Cloud Cost Leak Detector",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m src.main --file data/raw/aws/cur.csv
+  python -m src.main --file data/raw/aws/cur.csv --llm --output both
+  python -m src.main --file data/raw/aws/cur.parquet --provider aws
+  python -m src.main --file data/raw/aws/cur.csv --no-forecast --output console
+        """,
+    )
+    parser.add_argument("--file", required=True, help="Path to billing CSV or Parquet file")
+    parser.add_argument("--provider", choices=["aws", "azure", "gcp"],
+                        help="Cloud provider override (auto-detected if omitted)")
+    parser.add_argument("--output", choices=["json", "markdown", "both", "console"],
+                        default="both", help="Output format (default: both)")
+    parser.add_argument("--llm", action="store_true",
+                        help="Enrich HIGH/MEDIUM findings with Claude AI recommendations")
+    parser.add_argument("--llm-max", type=int, default=10,
+                        help="Max leaks to enrich with LLM (default: 10)")
+    parser.add_argument("--api-key", help="Anthropic API key")
+    parser.add_argument("--no-forecast", action="store_true",
+                        help="Skip 30-day cost forecast computation")
+    parser.add_argument("--top-untagged", type=int, default=20,
+                        help="Max untagged resource leaks to surface (default: 20)")
+    return parser.parse_args()
 
-    matches = {
-        "AWS": bool({
-            "line_item_usage_account_id",
-            "line_item_line_item_type",
-            "bill_payer_account_id",
-        } & cols),
-        "AZURE": bool({
-            "SubscriptionId",
-            "UsageDate",
-            "MeterName",
-        } & cols),
-        "GCP": bool({
-            "billing_account_id",
-            "project_id",
-            "service_description",
-        } & cols),
+
+# ===================== PIPELINE =====================
+
+def run_pipeline(args: argparse.Namespace) -> list:
+    logger.info(f"Starting pipeline — file: {args.file}")
+
+    try:
+        df = load_csv(args.file)
+    except Exception as e:
+        logger.error(f"Failed to load file: {e}")
+        sys.exit(1)
+
+    is_valid, message = validate_csv(args.file, df)
+    logger.info(f"Validation: {message}")
+    if not is_valid:
+        logger.error("Invalid input — aborting")
+        sys.exit(1)
+
+    result = run_pipeline_from_df(
+        df,
+        provider=args.provider,
+        use_llm=args.llm,
+        llm_max=args.llm_max,
+        api_key=args.api_key,
+        no_forecast=args.no_forecast,
+        top_untagged=args.top_untagged,
+    )
+
+    primary_leaks = result["leaks"]
+    forecasts     = result["forecasts"]
+
+    pipeline_stats = {
+        **result["pipeline_stats"],
+        "file": args.file,
     }
 
-    if sum(matches.values()) != 1:
-        raise ValueError(f"Ambiguous or unknown billing format: {matches}")
+    print_clean_output(primary_leaks)
 
-    provider = next(k for k, v in matches.items() if v)
+    if args.output in {"json", "both"}:
+        try:
+            json_path = save_json_report(primary_leaks, forecasts, pipeline_stats)
+            logger.info(f"JSON report → {json_path}")
+        except Exception as e:
+            logger.warning(f"JSON report save failed: {e}")
 
-print(f"\nDetected provider: {provider}")
+    if args.output in {"markdown", "both"}:
+        try:
+            md_path = save_markdown_report(primary_leaks, forecasts)
+            logger.info(f"Markdown report → {md_path}")
+        except Exception as e:
+            logger.warning(f"Markdown report save failed: {e}")
 
-
-# ================== NORMALIZATION ==================
-
-if provider == "AWS":
-    normalized_df = normalize_aws(df)
-elif provider == "AZURE":
-    normalized_df = normalize_azure(df)
-elif provider == "GCP":
-    normalized_df = normalize_gcp(df)
-else:
-    raise ValueError(f"Unsupported provider: {provider}")
-
-normalized_df["provider"] = provider
+    logger.info("Pipeline complete")
+    return primary_leaks
 
 
-# ================== FEATURE ENGINEERING ==================
+# ===================== ENTRYPOINT =====================
 
-daily_cost_df = daily_cost_per_service(normalized_df)
-trend_results = cost_trend_per_service(daily_cost_df)
-lifespan_results = resource_lifespan(normalized_df)
-ratio_results = usage_cost_ratio(normalized_df)
-
-
-# ================== LEAK DETECTION ==================
-
-zombie_leaks, zombie_resource_ids = detect_zombie_resources(
-    lifespan_results,
-    ratio_results
-)
-
-idle_leaks = detect_idle_resources(
-    lifespan_results,
-    ratio_results,
-    daily_cost_df,
-    excluded_resource_ids=zombie_resource_ids
-)
-
-runaway_leaks = detect_runaway_costs(daily_cost_df, ratio_results)
-
-always_on_leaks = detect_always_on_high_cost(
-    daily_cost_df,
-    normalized_df
-)
-
-orphaned_storage_leaks = detect_orphaned_storage(normalized_df)
-
-idle_db_leaks = detect_idle_databases(
-    lifespan_results,
-    ratio_results,
-    daily_cost_df,
-    normalized_df
-)
-
-snapshot_leaks = detect_snapshot_sprawl(normalized_df)
-
-untagged_leaks = detect_untagged_resources(normalized_df)
-
-# ================== DEDUPLICATION ==================
-
-def dedupe_leaks(leaks):
-    seen = set()
-    unique = []
-    for l in leaks:
-        key = (
-            l.get("leak_type"),
-            l.get("provider"),
-            l.get("service"),
-            l.get("resource_id"),
-        )
-        if key not in seen:
-            seen.add(key)
-            unique.append(l)
-    return unique
-
-
-all_leaks = dedupe_leaks(
-    zombie_leaks
-    + idle_leaks
-    + runaway_leaks
-    + always_on_leaks
-    + orphaned_storage_leaks
-    + idle_db_leaks
-    + snapshot_leaks
-    + untagged_leaks
-)
-
-
-# ================== SCORING & OUTPUT ==================
-
-scored_leaks = score_leaks(all_leaks)
-primary_leaks = select_primary_leaks(scored_leaks)
-print_clean_output(primary_leaks)
+if __name__ == "__main__":
+    args = parse_args()
+    run_pipeline(args)
