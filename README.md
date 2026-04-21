@@ -4,7 +4,6 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat&logo=fastapi&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
 ![Cloud](https://img.shields.io/badge/Cloud-AWS%20%7C%20Azure%20%7C%20GCP-orange?style=flat)
-![AI](https://img.shields.io/badge/AI-Claude%20(Anthropic)-blueviolet?style=flat)
 
 **AI-powered cloud billing analysis that automatically detects hidden cost waste.**
 
