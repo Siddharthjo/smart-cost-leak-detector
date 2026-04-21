@@ -35,6 +35,15 @@
     <h1 class="text-xl font-bold tracking-tight text-gray-900">Smart Cost Leak Detector</h1>
     <p class="text-xs text-gray-500">AI-powered cloud billing analysis — AWS · Azure · GCP</p>
   </div>
+  <div class="ml-auto flex items-center gap-2">
+    <label for="currency-select" class="text-xs text-gray-500 font-medium">Currency</label>
+    <select id="currency-select" onchange="setCurrency(this.value)"
+            class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 cursor-pointer">
+      <option value="USD">USD ($)</option>
+      <option value="EUR">EUR (€)</option>
+      <option value="INR">INR (₹)</option>
+    </select>
+  </div>
 </header>
 
 <main class="max-w-4xl mx-auto px-4 py-8 space-y-8">
@@ -49,6 +58,10 @@
       <button id="tab-aws" onclick="switchTab('aws')"
               class="tab-inactive px-6 py-3 text-sm font-medium transition-colors">
         AWS Live Credentials
+      </button>
+      <button id="tab-azure" onclick="switchTab('azure')"
+              class="tab-inactive px-6 py-3 text-sm font-medium transition-colors">
+        Azure Live Credentials
       </button>
     </div>
 
@@ -191,6 +204,71 @@
         Connect &amp; Analyze
       </button>
     </div>
+    <!-- ===== AZURE PANEL ===== -->
+    <div id="panel-azure" class="p-6 space-y-5 hidden">
+      <div class="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+        <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 15.75h.007v.008H12v-.008z"/>
+        </svg>
+        <span>Credentials are used only for the Azure Cost Management API call and are <strong>never stored, logged, or persisted</strong> in any way. Requires a service principal with <strong>Cost Management Reader</strong> on your subscription.</span>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Subscription ID <span class="text-red-500">*</span></label>
+          <input type="text" id="azure-subscription-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Tenant ID <span class="text-red-500">*</span></label>
+          <input type="text" id="azure-tenant-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Client ID (App Registration) <span class="text-red-500">*</span></label>
+          <input type="text" id="azure-client-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Client Secret <span class="text-red-500">*</span></label>
+          <input type="password" id="azure-client-secret" placeholder="Service principal client secret"
+                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Lookback (days)</label>
+          <input type="number" id="azure-days" value="30" min="7" max="90"
+                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </div>
+      </div>
+
+      <details class="group">
+        <summary class="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800 select-none">
+          Advanced options
+        </summary>
+        <div class="mt-3 grid grid-cols-2 gap-4">
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" id="azure-use-llm" class="rounded text-indigo-600" />
+            Enable Claude AI recommendations
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" id="azure-no-forecast" class="rounded text-indigo-600" />
+            Skip 30-day forecast
+          </label>
+          <div class="col-span-2">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Anthropic API Key (for Claude AI)</label>
+            <input type="password" id="azure-anthropic-key" placeholder="sk-ant-..."
+                   class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+          </div>
+        </div>
+      </details>
+
+      <button onclick="submitAzure()"
+              class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm">
+        Connect &amp; Analyze
+      </button>
+    </div>
   </div>
 
   <!-- ===== LOADING ===== -->
@@ -276,11 +354,21 @@ let currentTab = 'upload';
 let selectedFile = null;
 let lastResult  = null;
 let currentFilter = 'ALL';
+let currentCurrency = 'USD';
+
+const CURRENCY_RATES = { USD: 1, EUR: 0.92, INR: 83.5 };
+const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', INR: '₹' };
+const CURRENCY_LOCALES = { USD: 'en-US', EUR: 'de-DE', INR: 'en-IN' };
+
+function setCurrency(code) {
+  currentCurrency = code;
+  if (lastResult) renderResults(lastResult);
+}
 
 // ===== TABS =====
 function switchTab(tab) {
   currentTab = tab;
-  ['upload', 'aws'].forEach(t => {
+  ['upload', 'aws', 'azure'].forEach(t => {
     document.getElementById(`panel-${t}`).classList.toggle('hidden', t !== tab);
     const btn = document.getElementById(`tab-${t}`);
     btn.className = t === tab
@@ -354,6 +442,34 @@ async function submitAWS() {
   await runAnalysis('/api/analyze/aws', JSON.stringify(body), 'Connecting to AWS Cost Explorer…', 'application/json');
 }
 
+// ===== SUBMIT AZURE =====
+async function submitAzure() {
+  const subId    = document.getElementById('azure-subscription-id').value.trim();
+  const tenantId = document.getElementById('azure-tenant-id').value.trim();
+  const clientId = document.getElementById('azure-client-id').value.trim();
+  const secret   = document.getElementById('azure-client-secret').value.trim();
+  if (!subId || !tenantId || !clientId || !secret) {
+    showError('Subscription ID, Tenant ID, Client ID, and Client Secret are all required.');
+    return;
+  }
+
+  const body = {
+    subscription_id: subId,
+    tenant_id:       tenantId,
+    client_id:       clientId,
+    client_secret:   secret,
+    days:            parseInt(document.getElementById('azure-days').value, 10),
+    use_llm:         document.getElementById('azure-use-llm').checked,
+    no_forecast:     document.getElementById('azure-no-forecast').checked,
+    top_untagged:    20,
+  };
+
+  const antKey = document.getElementById('azure-anthropic-key').value.trim();
+  if (antKey) body.api_key = antKey;
+
+  await runAnalysis('/api/analyze/azure', JSON.stringify(body), 'Connecting to Azure Cost Management…', 'application/json');
+}
+
 // ===== CORE ANALYSIS RUNNER =====
 async function runAnalysis(url, body, loadingMsg, contentType) {
   clearError();
@@ -384,8 +500,8 @@ async function runAnalysis(url, body, loadingMsg, contentType) {
 function renderResults(data) {
   const s = data.summary || {};
   document.getElementById('res-total').textContent  = s.total_leaks ?? 0;
-  document.getElementById('res-waste').textContent  = '$' + fmt(s.estimated_monthly_waste_usd ?? 0);
-  document.getElementById('res-annual').textContent = '$' + fmt(s.estimated_annual_waste_usd ?? 0);
+  document.getElementById('res-waste').textContent  = fmtCurrency(s.estimated_monthly_waste_usd ?? 0);
+  document.getElementById('res-annual').textContent = fmtCurrency(s.estimated_annual_waste_usd ?? 0);
   document.getElementById('res-high').textContent   = s.high ?? 0;
   document.getElementById('res-medium').textContent = s.medium ?? 0;
 
@@ -413,7 +529,7 @@ function renderLeaks(leaks, filter) {
           <span class="text-sm font-semibold text-gray-800">${fmtType(leak.leak_type)}</span>
           <span class="text-xs text-gray-400">${leak.provider ?? ''} · ${leak.service ?? ''}</span>
         </div>
-        <span class="text-sm font-bold text-red-600 shrink-0">$${fmt(leak.estimated_monthly_waste ?? 0)}/mo</span>
+        <span class="text-sm font-bold text-red-600 shrink-0">${fmtCurrency(leak.estimated_monthly_waste ?? 0)}/mo</span>
       </div>
       ${leak.resource_id ? `<p class="text-xs text-gray-500 font-mono truncate">Resource: ${leak.resource_id}</p>` : ''}
       <p class="text-xs text-gray-600">${leak.reason ?? ''}</p>
@@ -422,7 +538,7 @@ function renderLeaks(leaks, filter) {
       <div class="flex gap-3 text-xs text-gray-400">
         <span>Score: ${leak.severity_score ?? 'N/A'}</span>
         <span>Confidence: ${leak.confidence ?? 'N/A'}</span>
-        ${leak.estimated_annual_waste ? `<span>Annual: $${fmt(leak.estimated_annual_waste)}</span>` : ''}
+        ${leak.estimated_annual_waste ? `<span>Annual: ${fmtCurrency(leak.estimated_annual_waste)}</span>` : ''}
       </div>
     </div>
   `).join('');
@@ -451,8 +567,8 @@ function renderForecasts(forecasts) {
     const trendStr = (f.trend_pct > 0 ? '+' : '') + (f.trend_pct ?? 0).toFixed(1) + '%';
     return `<tr class="hover:bg-gray-50">
       <td class="px-4 py-2 font-medium text-gray-800">${f.service}</td>
-      <td class="px-4 py-2 text-right text-gray-600">$${fmt(f.last_30d_actual ?? 0)}</td>
-      <td class="px-4 py-2 text-right text-gray-800 font-medium">$${fmt(f.projected_monthly_cost ?? 0)}</td>
+      <td class="px-4 py-2 text-right text-gray-600">${fmtCurrency(f.last_30d_actual ?? 0)}</td>
+      <td class="px-4 py-2 text-right text-gray-800 font-medium">${fmtCurrency(f.projected_monthly_cost ?? 0)}</td>
       <td class="px-4 py-2 text-right ${trendClass}">${trendStr}</td>
     </tr>`;
   }).join('');
@@ -501,6 +617,13 @@ function hideResults() {
 }
 function fmt(n) {
   return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtCurrency(n) {
+  const rate = CURRENCY_RATES[currentCurrency] ?? 1;
+  const sym  = CURRENCY_SYMBOLS[currentCurrency] ?? '$';
+  const loc  = CURRENCY_LOCALES[currentCurrency] ?? 'en-US';
+  const val  = Number(n) * rate;
+  return sym + val.toLocaleString(loc, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function fmtType(t) {
   return (t || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());

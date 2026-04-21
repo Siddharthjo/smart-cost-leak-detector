@@ -66,6 +66,19 @@ class AWSCredentialsRequest(BaseModel):
     top_untagged: int = Field(20, ge=1, le=100, description="Max untagged resource leaks to surface")
 
 
+class AzureCredentialsRequest(BaseModel):
+    subscription_id: str = Field(..., description="Azure Subscription ID")
+    tenant_id: str = Field(..., description="Azure Active Directory Tenant ID")
+    client_id: str = Field(..., description="Service Principal / App Registration Client ID")
+    client_secret: SecretStr = Field(..., description="Service Principal Client Secret — never stored")
+    days: int = Field(30, ge=7, le=90, description="Days of billing history to pull from Cost Management")
+    use_llm: bool = Field(False, description="Enrich findings with Claude AI recommendations")
+    llm_max: int = Field(10, ge=1, le=20, description="Max leaks to send to LLM")
+    api_key: Optional[str] = Field(None, description="Anthropic API key (or set ANTHROPIC_API_KEY env var)")
+    no_forecast: bool = Field(False, description="Skip 30-day cost forecast")
+    top_untagged: int = Field(20, ge=1, le=100, description="Max untagged resource leaks to surface")
+
+
 # ===================== ENDPOINTS =====================
 
 @app.get("/api/health")
@@ -165,6 +178,49 @@ def analyze_aws(req: AWSCredentialsRequest):
     return JSONResponse(content=sanitize_floats(result))
 
 
+@app.post("/api/analyze/azure")
+def analyze_azure(req: AzureCredentialsRequest):
+    """
+    Analyze costs using live Azure Cost Management API.
+
+    Credentials are used only to make the Cost Management API call and are
+    never written to disk, never logged, and discarded after the request.
+    """
+    try:
+        df = _fetch_azure_cost_management(
+            subscription_id=req.subscription_id,
+            tenant_id=req.tenant_id,
+            client_id=req.client_id,
+            client_secret=req.client_secret.get_secret_value(),
+            days=req.days,
+        )
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="azure-identity and azure-mgmt-costmanagement are required for Azure live mode. "
+                   "Install with: pip install azure-identity azure-mgmt-costmanagement",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Azure Cost Management error: {exc}")
+
+    try:
+        result = run_pipeline_from_df(
+            df,
+            provider="AZURE",
+            use_llm=req.use_llm,
+            llm_max=req.llm_max,
+            api_key=req.api_key or None,
+            no_forecast=req.no_forecast,
+            top_untagged=req.top_untagged,
+            already_normalized=True,
+        )
+    except Exception as exc:
+        logger.exception("Pipeline error in Azure API mode")
+        raise HTTPException(status_code=500, detail=f"Pipeline error: {exc}")
+
+    return JSONResponse(content=sanitize_floats(result))
+
+
 # ===================== AWS COST EXPLORER =====================
 
 def _fetch_cost_explorer(
@@ -239,6 +295,90 @@ def _fetch_cost_explorer(
         raise ValueError(
             "No cost data returned from AWS Cost Explorer for the specified period. "
             "Verify your credentials have ce:GetCostAndUsage permission."
+        )
+
+    return pd.DataFrame(records)
+
+
+# ===================== AZURE COST MANAGEMENT =====================
+
+def _fetch_azure_cost_management(
+    subscription_id: str,
+    tenant_id: str,
+    client_id: str,
+    client_secret: str,
+    days: int,
+) -> pd.DataFrame:
+    """
+    Pull daily cost-by-service from Azure Cost Management.
+    Credentials live only in this function scope and are deleted before return.
+    Never logged, never persisted.
+    """
+    from azure.identity import ClientSecretCredential          # optional dependency
+    from azure.mgmt.costmanagement import CostManagementClient
+    from azure.mgmt.costmanagement.models import (
+        QueryDefinition, QueryTimePeriod, QueryDataset,
+        QueryAggregation, QueryGrouping,
+    )
+
+    end   = datetime.utcnow().date()
+    start = end - timedelta(days=days)
+
+    credential = ClientSecretCredential(
+        tenant_id=tenant_id,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    client = CostManagementClient(credential)
+    scope  = f"/subscriptions/{subscription_id}"
+
+    params = QueryDefinition(
+        type="ActualCost",
+        timeframe="Custom",
+        time_period=QueryTimePeriod(
+            from_property=datetime.combine(start, datetime.min.time()),
+            to=datetime.combine(end, datetime.min.time()),
+        ),
+        dataset=QueryDataset(
+            granularity="Daily",
+            aggregation={"totalCost": QueryAggregation(name="Cost", function="Sum")},
+            grouping=[QueryGrouping(type="Dimension", name="ServiceName")],
+        ),
+    )
+
+    result = client.query.usage(scope=scope, parameters=params)
+
+    col_names = [col.name for col in result.columns]
+
+    records = []
+    for row in result.rows:
+        row_dict = dict(zip(col_names, row))
+        cost = float(row_dict.get("Cost") or 0)
+        if cost <= 0:
+            continue
+
+        raw_date = str(row_dict.get("UsageDate", ""))
+        if len(raw_date) == 8:
+            date_val = pd.to_datetime(raw_date, format="%Y%m%d").date()
+        else:
+            continue
+
+        records.append({
+            "date":        date_val,
+            "service":     str(row_dict.get("ServiceName", "Unknown")),
+            "cost":        cost,
+            "usage":       0.0,
+            "provider":    "AZURE",
+            "resource_id": "",
+            "region":      "",
+        })
+
+    del client_secret, credential, client
+
+    if not records:
+        raise ValueError(
+            "No cost data returned from Azure Cost Management for the specified period. "
+            "Verify your service principal has Cost Management Reader permission on the subscription."
         )
 
     return pd.DataFrame(records)

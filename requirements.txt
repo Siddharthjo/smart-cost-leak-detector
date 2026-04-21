@@ -6,3 +6,5 @@ fastapi
 uvicorn[standard]
 python-multipart
 boto3
+azure-identity
+azure-mgmt-costmanagement
